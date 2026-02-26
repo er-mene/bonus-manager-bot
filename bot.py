@@ -96,7 +96,6 @@ def num_to_emoji(num):
 
 @dp.callback_query(F.data == "list_promotions")
 async def list_callback_handler(callback_query: types.CallbackQuery):
-    await callback_query.answer() #interrupt loading notification
     print(f"📋 Lista promozioni richiesta da {callback_query.from_user.id} - {callback_query.from_user.full_name}")
 
     #fetch promotions from database
@@ -133,7 +132,6 @@ async def list_callback_handler(callback_query: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("promo_"))
 async def promo_callback_handler(callback_query: types.CallbackQuery):
-    await callback_query.answer() #interrupt loading notification
     conn = await get_db_connection()
     promo_name = callback_query.data.split("promo_")[1]
     row = await conn.fetchrow('SELECT guide, photo_id FROM promotion WHERE platform = $1', promo_name)
@@ -150,7 +148,6 @@ async def promo_callback_handler(callback_query: types.CallbackQuery):
 
 @dp.callback_query(F.data == "main_menu")
 async def menu_callback_handler(callback_query: types.CallbackQuery):
-    await callback_query.answer() #interrupt loading notification
     caption, keyboard = await get_main_menu(callback_query.from_user.full_name)
     await callback_query.message.edit_text(**caption.as_kwargs(), reply_markup=keyboard)
 
