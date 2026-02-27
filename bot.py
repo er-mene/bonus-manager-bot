@@ -5,6 +5,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.utils.formatting import Text, Bold
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InputFile
 import asyncpg
 
 load_dotenv()
@@ -96,6 +97,7 @@ def num_to_emoji(num):
 
 @dp.callback_query(F.data == "list_promotions")
 async def list_callback_handler(callback_query: types.CallbackQuery):
+    await callback_query.answer() #interrupt loading notification
     print(f"📋 Lista promozioni richiesta da {callback_query.from_user.id} - {callback_query.from_user.full_name}")
 
     #fetch promotions from database
@@ -127,11 +129,15 @@ async def list_callback_handler(callback_query: types.CallbackQuery):
                     Bold(f"📈 Guadagno potenziale complessivo: {total_sum}€\n\n",
                     "Premi il numero corrispondente alla promozione desiderata per ottenere la guida!"))
 
-    await callback_query.message.answer(**caption.as_kwargs(), reply_markup=builder.as_markup())
+    try: await callback_query.message.edit_text(**caption.as_kwargs(), reply_markup=builder.as_markup())
+    except: 
+        await callback_query.message.delete()
+        await callback_query.message.answer(**caption.as_kwargs(), reply_markup=builder.as_markup())
 
 
 @dp.callback_query(F.data.startswith("promo_"))
 async def promo_callback_handler(callback_query: types.CallbackQuery):
+    await callback_query.answer() #interrupt loading notification
     conn = await get_db_connection()
     promo_name = callback_query.data.split("promo_")[1]
     row = await conn.fetchrow('SELECT guide, photo_id FROM promotion WHERE platform = $1', promo_name)
@@ -142,12 +148,13 @@ async def promo_callback_handler(callback_query: types.CallbackQuery):
         [types.InlineKeyboardButton(text="↩️ Torna alla lista", callback_data="list_promotions")],
         [types.InlineKeyboardButton(text="🆘 Assistenza", url="https://t.me/ErMenee")],
     ])
-
-    await callback_query.message.answer_photo(photo=photo, **caption.as_caption_kwargs(), reply_markup=keyboard)
+    media = types.InputMediaPhoto(media=photo, **caption.as_caption_kwargs())
+    await callback_query.message.edit_media(media=media, reply_markup=keyboard)
 
 
 @dp.callback_query(F.data == "main_menu")
 async def menu_callback_handler(callback_query: types.CallbackQuery):
+    await callback_query.answer() #interrupt loading notification
     caption, keyboard = await get_main_menu(callback_query.from_user.full_name)
     await callback_query.message.edit_text(**caption.as_kwargs(), reply_markup=keyboard)
 
