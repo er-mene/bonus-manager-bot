@@ -65,7 +65,7 @@ async def get_promo_header(promo_name):
     max_slots_txt = Bold("👥 Limite inviti: ") + max_slots + "\n" if max_slots else ""
     has_phisical_card = "💳 Carta fisica obbligatoria" if row['phisical_card'] else ""
     fees = row['fees']
-    fees_txt = Bold("📤 Commissioni: ") + fees + "\n" if fees else ""
+    fees_txt = Bold("📤 Commissioni: ") + fees if fees else ""
 
     header = (  Bold("💸 Bonus: ") + bonus_txt + "\n" +
                 Bold("📥 Deposito: ") + deposit_txt + "\n" +
@@ -73,8 +73,8 @@ async def get_promo_header(promo_name):
                 Bold("⏱ Tempistiche: ") + timing_txt + "\n" +
                 Bold("🆔 Verifica documenti: ") + kyc + "\n" +
                 max_slots_txt +
-                Bold(has_phisical_card) +
-                fees_txt )
+                fees_txt + 
+                Bold(has_phisical_card))
     
     return header
 
@@ -102,37 +102,80 @@ async def list_callback_handler(callback_query: types.CallbackQuery):
 
     #fetch promotions from database
     conn = await get_db_connection()
+
     rows = await conn.fetch('''SELECT platform
                                FROM promotion WHERE active = true
-                               ORDER BY deposit_min, bonus_min''')
+                               ORDER BY deposit_min, bonus_min''', )
     
-    total_sum = await conn.fetchval('SELECT SUM(bonus_min) FROM promotion WHERE active = true')
-    
-    #format list
     builder = InlineKeyboardBuilder()
-    promos = []
 
-    i = 1
-    for row in rows:
-        name = row['platform']
-        header = await get_promo_header(name)
-        n_emoji = num_to_emoji(i)
-        promos.append(Text(Bold(f"{n_emoji} {name.upper()}\n"), header, "\n\n"))
-        builder.button(text=f"{n_emoji}", callback_data=f"promo_{name.lower()}")
-        i += 1
+    if rows:
+        total_sum = await conn.fetchval('SELECT SUM(bonus_min) FROM promotion WHERE active = true')
+        promos = []
 
-    builder.adjust(5)
+        i = 1
+        for row in rows:
+            name = row['platform']
+            header = await get_promo_header(name)
+
+            promos.append(Text(Bold(f"{num_to_emoji(i)} {name.upper()}\n"), header, "\n\n"))
+            builder.button(text=f"{num_to_emoji(i)}", callback_data=f"promo_{name.lower()}")
+            i += 1
+
+        builder.adjust(5)
+        
+        caption = Text( Bold(f"📋 PROMOZIONI ATTIVE 📋\n\n"), 
+                        *promos, 
+                        Bold(f"📈 Guadagno potenziale complessivo: {total_sum}€\n\n",
+                        "Premi il numero corrispondente alla promozione desiderata per ottenere la guida!"))
+    else:
+        caption = Text(Bold("Nessuna promozione attiva disponibile"))
+
     builder.row(types.InlineKeyboardButton(text="🔙 Torna al menu principale", callback_data="main_menu"))
-
-    caption = Text( Bold(f"📋 PROMOZIONI ATTIVE 📋\n\n\n"), 
-                    *promos, 
-                    Bold(f"📈 Guadagno potenziale complessivo: {total_sum}€\n\n",
-                    "Premi il numero corrispondente alla promozione desiderata per ottenere la guida!"))
+    builder.row(types.InlineKeyboardButton(text="⏰ Promozioni scadute", callback_data="old_promotions"))
+    #TODO promo passate
 
     try: await callback_query.message.edit_text(**caption.as_kwargs(), reply_markup=builder.as_markup())
     except: 
         await callback_query.message.delete()
         await callback_query.message.answer(**caption.as_kwargs(), reply_markup=builder.as_markup())
+
+
+@dp.callback_query(F.data == "old_promotions")
+async def old_callback_handler(callback_query: types.CallbackQuery):
+    await callback_query.answer() #interrupt loading notification
+    print(f"📋 Lista vecchie promozioni richiesta da {callback_query.from_user.id} - {callback_query.from_user.full_name}")
+
+    #fetch promotions from database
+    conn = await get_db_connection()
+
+    rows = await conn.fetch('''SELECT platform
+                               FROM promotion WHERE active = false
+                               ORDER BY end_date''', )
+    
+    builder = InlineKeyboardBuilder()
+
+    if rows:
+        promos = []
+
+        i = 1
+        for row in rows:
+            name = row['platform']
+            header = await get_promo_header(name)
+            promos.append(Text(Bold(f"{num_to_emoji(i)} {name.upper()}\n"), header, "\n\n"))
+            builder.button(text=f"{num_to_emoji(i)}", callback_data=f"promo_{name.lower()}")
+            i += 1
+
+        builder.adjust(5)
+        
+        caption = Text( Bold(f"📋 PROMOZIONI SCADUTE 📋\n\n\n"), 
+                        *promos, 
+                        "Premi il numero corrispondente alla promozione desiderata per ottenere la guida!")
+    else:
+        caption = Text(Bold("Non ci sono promozioni passate"))
+                       
+    builder.row(types.InlineKeyboardButton(text="🔙 Torna al menu principale", callback_data="main_menu"))
+    await callback_query.message.edit_text(**caption.as_kwargs(), reply_markup=builder.as_markup())
 
 
 @dp.callback_query(F.data.startswith("promo_"))
@@ -164,6 +207,11 @@ async def start_handler(message: types.Message):
     print(f"📩 Nuovo utente: {message.from_user.id} - {message.from_user.full_name}")
     caption, keyboard = await get_main_menu(message.from_user.full_name)
     await message.answer(**caption.as_kwargs(), reply_markup=keyboard)
+
+@dp.message(~CommandStart())
+async def fetch_photo_id(message: types.Message):
+    photo_id = message.photo[-1]
+    print(f"Ricevuta foto: {photo_id}")
 
 
 async def main() -> None:
